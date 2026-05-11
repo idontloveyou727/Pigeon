@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 
+from .env import load_dotenv
+
 
 @dataclass(frozen=True)
 class IngestConfig:
@@ -19,9 +21,13 @@ class IngestConfig:
 
     @classmethod
     def from_env(cls) -> "IngestConfig":
+        load_dotenv()
         api_key = os.getenv("TORN_API_KEY", "").strip()
         if not api_key:
-            raise ValueError("TORN_API_KEY is required")
+            raise ValueError(
+                "TORN_API_KEY is required. Set it before running `pigeon-ingest` or `pigeon-bot`, for example: "
+                "`$env:TORN_API_KEY='your-key'` in PowerShell."
+            )
 
         return cls(
             api_key=api_key,

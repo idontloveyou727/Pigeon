@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 
+from .env import load_dotenv
+
 
 @dataclass(frozen=True)
 class BotConfig:
@@ -14,6 +16,7 @@ class BotConfig:
 
     @classmethod
     def from_env(cls) -> "BotConfig":
+        load_dotenv()
         token = os.getenv("DISCORD_TOKEN", "").strip()
         if not token:
             raise ValueError("DISCORD_TOKEN is required")

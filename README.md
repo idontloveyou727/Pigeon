@@ -10,6 +10,13 @@ python -m pip install -e .
 pigeon-ingest --once
 ```
 
+Trước khi chạy, cần set `TORN_API_KEY` trong shell. Ví dụ trên PowerShell:
+
+```powershell
+$env:TORN_API_KEY='your-key'
+pigeon-ingest --once
+```
+
 Bot Discord interactive chạy bằng slash commands, không dùng webhook:
 
 ```bash
