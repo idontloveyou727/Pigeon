@@ -1,0 +1,1 @@
+"""Pigeon ingest service package."""
