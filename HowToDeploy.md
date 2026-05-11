@@ -202,7 +202,32 @@ sudo systemctl restart pigeon-bot
 - The Discord bot does not need a public port because it only makes outbound connections to Discord
 - If you want to scale later, you can move SQLite to PostgreSQL and keep the same service layout
 
-## 12. Fastest deployment path
+## 12. How to inspect the database
+
+For admin work, the database is the SQLite file at `data/ingest.sqlite3`.
+You can inspect it directly on the VM with the SQLite CLI:
+
+```bash
+sqlite3 data/ingest.sqlite3
+```
+
+Useful queries:
+
+```sql
+.tables
+SELECT * FROM user_balances ORDER BY updated_at DESC LIMIT 20;
+SELECT * FROM balance_ledger ORDER BY id DESC LIMIT 20;
+SELECT * FROM ingest_runs ORDER BY id DESC LIMIT 20;
+SELECT * FROM raw_logs ORDER BY received_at DESC LIMIT 20;
+```
+
+If `sqlite3` is not installed, add it with your system package manager:
+
+```bash
+sudo apt install -y sqlite3
+```
+
+## 13. Fastest deployment path
 
 If you only want to get it running quickly on Oracle VM, do this in order:
 
