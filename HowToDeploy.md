@@ -204,11 +204,23 @@ sudo systemctl restart pigeon-bot
 
 ## 12. How to inspect the database
 
-For admin work, the database is the SQLite file at `data/ingest.sqlite3`.
+For admin work, the database is the SQLite file at `data/ingest.sqlite3` on the Oracle VM.
+The normal workflow is:
+
+1. SSH into the VM
+2. Open the SQLite file with the `sqlite3` CLI
+3. Run read-only queries as needed
+
 You can inspect it directly on the VM with the SQLite CLI:
 
 ```bash
 sqlite3 data/ingest.sqlite3
+```
+
+If you want to query it without opening an interactive shell, you can run a one-off command like this:
+
+```bash
+sqlite3 data/ingest.sqlite3 "SELECT * FROM user_balances ORDER BY updated_at DESC LIMIT 20;"
 ```
 
 Useful queries:
@@ -226,6 +238,14 @@ If `sqlite3` is not installed, add it with your system package manager:
 ```bash
 sudo apt install -y sqlite3
 ```
+
+If you want to inspect the database locally on your own machine, copy the file from the VM first:
+
+```bash
+scp ubuntu@your-oracle-vm:/home/ubuntu/Pigeon/data/ingest.sqlite3 ./ingest.sqlite3
+```
+
+Then open the copied file locally with the same `sqlite3` commands.
 
 ## 13. Fastest deployment path
 
