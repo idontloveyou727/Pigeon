@@ -63,6 +63,7 @@ pigeon-bot
 Notes:
 
 - `/deposit` is admin-only and is meant for manual recovery when ingest was down.
+- `/withdraw` deducts the requested amount from the player's balance and DMs configured admins so they can complete the transfer manually in game. If no admin DM can be delivered, the deduction is rolled back.
 - `/raffle` only works when the user balance is at least `800000`; the bot deducts exactly `800000` on entry.
 - `/balance`, `/raffle`, and `/bj` resolve the player's game user id from the Discord display name format `Name [123456]`.
 - `/bj` uses a 4-deck shoe, allows at most 3 active tables, stands dealer on soft 17, pays natural blackjack 3:2, allows one split, and auto-stands after 30 seconds of inactivity.

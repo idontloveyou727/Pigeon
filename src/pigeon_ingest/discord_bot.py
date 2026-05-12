@@ -183,16 +183,67 @@ def build_bot(config: BotConfig) -> PigeonDiscordBot:
 
         await _send(interaction, _format_change_result("Rolled back", result), ephemeral=True)
 
-    @bot.tree.command(name="withdraw", description="Placeholder withdraw command for admins")
+    @bot.tree.command(name="withdraw", description="Request a manual in-game withdrawal")
     @app_commands.describe(amount="Withdraw amount", note="Optional note")
     async def withdraw_command(interaction: discord.Interaction, amount: int, note: str | None = None) -> None:
-        if not await _is_admin(interaction):
-            await _send(interaction, "You are not allowed to use this command.", ephemeral=True)
+        target_user_id = await _game_user_id(interaction)
+        if target_user_id is None:
+            return
+
+        if amount <= 0:
+            await _send(interaction, "Withdraw amount must be positive.", ephemeral=True)
+            return
+
+        snapshot = await storage.get_balance(target_user_id)
+        if snapshot.balance < amount:
+            await _send(
+                interaction,
+                f"Insufficient balance. Requested={amount}, current balance={snapshot.balance}.",
+                ephemeral=True,
+            )
+            return
+
+        result = await storage.adjust_balance(
+            user_id=target_user_id,
+            delta=-amount,
+            actor=str(interaction.user.id),
+            reason=note or "Manual in-game withdrawal request",
+            entry_type="withdraw_request",
+        )
+
+        admin_message = (
+            f"Withdraw request: {interaction.user.mention} user_id={target_user_id} needs {amount}. "
+            f"Balance before={result.before_balance} after={result.after_balance}. "
+            f"Ledger id={result.ledger_entry.id}. Please complete it manually in game."
+        )
+        delivered = 0
+        for admin_user_id in config.admin_user_ids:
+            try:
+                admin_user = await bot.fetch_user(admin_user_id)
+                await admin_user.send(admin_message)
+                delivered += 1
+            except discord.HTTPException:
+                logger.exception("Failed to DM withdraw request to admin user_id=%s", admin_user_id)
+
+        if delivered == 0:
+            await storage.rollback_ledger_entry(
+                entry_id=result.ledger_entry.id,
+                actor="withdraw-dm-failure",
+                reason="Withdraw request could not be delivered to any admin DM",
+            )
+            await _send(
+                interaction,
+                "Withdraw request failed because the bot could not DM any configured admin. Your balance was refunded.",
+                ephemeral=True,
+            )
             return
 
         await _send(
             interaction,
-            f"Withdraw placeholder received: amount={amount} note={note or 'placeholder'}. Hook the real action later.",
+            (
+                f"Withdraw request sent. Amount={amount}, balance before={result.before_balance}, "
+                f"after={result.after_balance}."
+            ),
             ephemeral=True,
         )
 
