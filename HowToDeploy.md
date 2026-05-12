@@ -69,7 +69,7 @@ Create a `.env` file in the repo root with content like this:
 TORN_API_KEY=your-torn-api-key
 TORN_LOG_ID=4103
 TORN_LIMIT=10
-TORN_POLL_INTERVAL_SECONDS=30
+TORN_POLL_INTERVAL_SECONDS=60
 TORN_DEPOSIT_ITEM_ID=206
 TORN_DEPOSIT_UNIT_VALUE=800000
 TORN_DATABASE_PATH=data/ingest.sqlite3
@@ -86,7 +86,7 @@ Notes:
 - Do not commit `.env` to git
 - If the bot is only used in one server, set `DISCORD_GUILD_ID` so slash commands sync faster
 - `DISCORD_ADMIN_USER_IDS` accepts a comma-separated list of IDs if you have multiple admins
-- `TORN_POLL_INTERVAL_SECONDS=30` is a safer default for a small 24/7 service. Lower values call the Torn API more often.
+- `TORN_POLL_INTERVAL_SECONDS=60` is a safer default for a small 24/7 service. Lower values call the Torn API more often.
 
 ## 6. Run a manual smoke test
 
