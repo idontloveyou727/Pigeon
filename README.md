@@ -38,7 +38,7 @@ pigeon-bot
 - `TORN_API_KEY`: Torn API key
 - `TORN_LOG_ID`: log id to fetch, default `4103`
 - `TORN_LIMIT`: number of logs to fetch per request, default `10`
-- `TORN_POLL_INTERVAL_SECONDS`: polling interval, default `2`
+- `TORN_POLL_INTERVAL_SECONDS`: polling interval, default `60`
 - `TORN_DEPOSIT_ITEM_ID`: item to credit, default `206`
 - `TORN_DEPOSIT_UNIT_VALUE`: value per item, default `800000`
 - `TORN_DATABASE_PATH`: SQLite path, default `data/ingest.sqlite3`
@@ -57,8 +57,12 @@ pigeon-bot
 - `/rollback <ledger_id> [reason]`
 - `/withdraw <amount> [note]`
 - `/raffle [note]`
+- `/bj start <amount>`
+- `/bj exit`
 
 Notes:
 
 - `/deposit` is admin-only and is meant for manual recovery when ingest was down.
 - `/raffle` only works when the user balance is at least `800000`; the bot deducts exactly `800000` on entry.
+- `/balance`, `/raffle`, and `/bj` resolve the player's game user id from the Discord display name format `Name [123456]`.
+- `/bj` uses a 4-deck shoe, allows at most 3 active tables, stands dealer on soft 17, pays natural blackjack 3:2, allows one split, and auto-stands after 30 seconds of inactivity.

@@ -2,26 +2,34 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
+from .blackjack import MAX_BET, MIN_BET, is_natural_blackjack
+from .blackjack_manager import BlackjackManager, format_game, format_results
 from .bot_config import BotConfig
 from .ledger import BalanceChangeResult
 from .storage import IngestStorage
 
 
 class PigeonDiscordBot(commands.Bot):
-    def __init__(self, config: BotConfig, storage: IngestStorage) -> None:
+    def __init__(self, config: BotConfig, storage: IngestStorage, blackjack: BlackjackManager) -> None:
         intents = discord.Intents.default()
         super().__init__(command_prefix=commands.when_mentioned, intents=intents)
         self._config = config
         self._storage = storage
+        self._blackjack = blackjack
         self._synced = False
 
     async def setup_hook(self) -> None:
         await self._storage.open()
+        recovered = await self._blackjack.recover_or_refund_sessions()
+        logger = logging.getLogger(__name__)
+        for message in recovered:
+            logger.warning("Recovered blackjack session: %s", message)
         await self._sync_commands()
 
     async def close(self) -> None:
@@ -46,7 +54,8 @@ class PigeonDiscordBot(commands.Bot):
 
 def build_bot(config: BotConfig) -> PigeonDiscordBot:
     storage = IngestStorage(config.database_path)
-    bot = PigeonDiscordBot(config, storage)
+    blackjack = BlackjackManager(storage)
+    bot = PigeonDiscordBot(config, storage, blackjack)
     logger = logging.getLogger(__name__)
 
     async def _is_admin(interaction: discord.Interaction) -> bool:
@@ -65,6 +74,24 @@ def build_bot(config: BotConfig) -> PigeonDiscordBot:
     def _format_balance(user_id: int, balance: int, updated_at: str) -> str:
         return f"user_id={user_id} balance={balance} updated_at={updated_at}"
 
+    async def _game_user_id(interaction: discord.Interaction) -> int | None:
+        user = interaction.user
+        names = [
+            getattr(user, "display_name", ""),
+            getattr(user, "global_name", ""),
+            getattr(user, "name", ""),
+        ]
+        for name in names:
+            match = re.search(r"\[(\d+)\]", name or "")
+            if match:
+                return int(match.group(1))
+        await _send(
+            interaction,
+            "Could not find your game user id in your server nickname. Expected a name like Player [123456].",
+            ephemeral=True,
+        )
+        return None
+
     @bot.event
     async def on_ready() -> None:
         logger.info("Discord bot ready as %s", bot.user)
@@ -72,7 +99,9 @@ def build_bot(config: BotConfig) -> PigeonDiscordBot:
     @bot.tree.command(name="balance", description="Check a user's balance")
     @app_commands.describe(user_id="Optional target user id")
     async def balance_command(interaction: discord.Interaction, user_id: int | None = None) -> None:
-        target_user_id = user_id or interaction.user.id
+        target_user_id = user_id or await _game_user_id(interaction)
+        if target_user_id is None:
+            return
         snapshot = await storage.get_balance(target_user_id)
         await _send(interaction, _format_balance(snapshot.user_id, snapshot.balance, snapshot.updated_at), ephemeral=True)
 
@@ -169,7 +198,9 @@ def build_bot(config: BotConfig) -> PigeonDiscordBot:
     @bot.tree.command(name="raffle", description="Join raffle if balance is at least 800,000")
     @app_commands.describe(note="Optional note")
     async def raffle_command(interaction: discord.Interaction, note: str | None = None) -> None:
-        target_user_id = interaction.user.id
+        target_user_id = await _game_user_id(interaction)
+        if target_user_id is None:
+            return
         snapshot = await storage.get_balance(target_user_id)
         if snapshot.balance < 800000:
             await _send(
@@ -195,7 +226,115 @@ def build_bot(config: BotConfig) -> PigeonDiscordBot:
             ephemeral=True,
         )
 
+    bj_group = app_commands.Group(name="bj", description="Play blackjack with your balance")
+
+    @bj_group.command(name="start", description="Start a blackjack table")
+    @app_commands.describe(amount=f"Bet amount, min {MIN_BET}, max {MAX_BET}")
+    async def blackjack_start(interaction: discord.Interaction, amount: int) -> None:
+        user_id = await _game_user_id(interaction)
+        if user_id is None:
+            return
+        try:
+            game = await blackjack.start(user_id=user_id, discord_user_id=interaction.user.id, bet=amount)
+        except ValueError as exc:
+            await _send(interaction, str(exc), ephemeral=True)
+            return
+
+        if game.active_hand.natural_blackjack or is_natural_blackjack(game.dealer_cards):
+            settled = await blackjack.auto_stand(table_id=game.table_id)
+            if settled is None:
+                await _send(interaction, "Blackjack table finished before it could be shown.", ephemeral=True)
+                return
+            settled_game, results = settled
+            await _send(interaction, format_results(settled_game, results), ephemeral=True)
+            return
+
+        view = BlackjackView(blackjack, game.table_id)
+        await interaction.response.send_message(format_game(game), view=view, ephemeral=True)
+        view.message = await interaction.original_response()
+
+    @bj_group.command(name="exit", description="Exit your current blackjack table")
+    async def blackjack_exit(interaction: discord.Interaction) -> None:
+        refund = await blackjack.exit(discord_user_id=interaction.user.id)
+        if refund is None:
+            await _send(interaction, "You do not have an active blackjack table.", ephemeral=True)
+            return
+        await _send(interaction, f"Exited blackjack table. Refunded {refund}.", ephemeral=True)
+
+    bot.tree.add_command(bj_group)
+
     return bot
+
+
+class BlackjackView(discord.ui.View):
+    def __init__(self, manager: BlackjackManager, table_id: int) -> None:
+        super().__init__(timeout=30)
+        self._manager = manager
+        self._table_id = table_id
+        self.message: discord.Message | None = None
+        game = manager.get(table_id)
+        if game is not None:
+            hand = game.active_hand
+            for child in self.children:
+                if isinstance(child, discord.ui.Button) and child.label == "Double":
+                    child.disabled = not hand.can_double()
+                if isinstance(child, discord.ui.Button) and child.label == "Split":
+                    child.disabled = not hand.can_split()
+
+    async def on_timeout(self) -> None:
+        settled = await self._manager.auto_stand(table_id=self._table_id)
+        if settled is None or self.message is None:
+            return
+        game, results = settled
+        try:
+            await self.message.edit(content=format_results(game, results) + "\nTimed out: auto-stand applied.", view=None)
+        except discord.HTTPException:
+            pass
+
+    @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary)
+    async def hit(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self._apply(interaction, "hit")
+
+    @discord.ui.button(label="Stand", style=discord.ButtonStyle.secondary)
+    async def stand(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self._apply(interaction, "stand")
+
+    @discord.ui.button(label="Double", style=discord.ButtonStyle.success)
+    async def double(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self._apply(interaction, "double")
+
+    @discord.ui.button(label="Split", style=discord.ButtonStyle.success)
+    async def split(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self._apply(interaction, "split")
+
+    @discord.ui.button(label="Exit", style=discord.ButtonStyle.danger)
+    async def exit(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        refund = await self._manager.exit(discord_user_id=interaction.user.id)
+        self.stop()
+        if refund is None:
+            await interaction.response.edit_message(content="This blackjack table is already closed.", view=None)
+            return
+        await interaction.response.edit_message(content=f"Exited blackjack table. Refunded {refund}.", view=None)
+
+    async def _apply(self, interaction: discord.Interaction, action: str) -> None:
+        try:
+            game, results = await self._manager.action(
+                table_id=self._table_id,
+                discord_user_id=interaction.user.id,
+                action=action,  # type: ignore[arg-type]
+            )
+        except ValueError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+            return
+
+        self.stop()
+        if results is not None:
+            await interaction.response.edit_message(content=format_results(game, results), view=None)
+            return
+
+        view = BlackjackView(self._manager, game.table_id)
+        await interaction.response.edit_message(content=format_game(game), view=view)
+        view.message = await interaction.original_response()
 
 
 def _format_change_result(label: str, result: BalanceChangeResult) -> str:

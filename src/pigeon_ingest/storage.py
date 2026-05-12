@@ -112,6 +112,18 @@ class IngestStorage:
 
             CREATE INDEX IF NOT EXISTS idx_balance_ledger_user_id ON balance_ledger(user_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_balance_ledger_entry_type ON balance_ledger(entry_type);
+
+            CREATE TABLE IF NOT EXISTS blackjack_sessions (
+                table_id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL UNIQUE,
+                discord_user_id INTEGER NOT NULL,
+                state_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_blackjack_sessions_discord_user_id
+                ON blackjack_sessions(discord_user_id);
             """
         )
         await self._connection.commit()
@@ -445,6 +457,66 @@ class IngestStorage:
             entry_type="rollback",
             reference_note=target.entry_key,
         )
+
+    async def list_blackjack_sessions(self) -> list[dict]:
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            """
+            SELECT table_id, user_id, discord_user_id, state_json, created_at, updated_at
+            FROM blackjack_sessions
+            ORDER BY table_id ASC
+            """
+        )
+        rows = await cursor.fetchall()
+        sessions: list[dict] = []
+        for row in rows:
+            sessions.append(
+                {
+                    "table_id": int(row["table_id"]),
+                    "user_id": int(row["user_id"]),
+                    "discord_user_id": int(row["discord_user_id"]),
+                    "state": json.loads(str(row["state_json"])),
+                    "created_at": str(row["created_at"]),
+                    "updated_at": str(row["updated_at"]),
+                }
+            )
+        return sessions
+
+    async def save_blackjack_session(
+        self,
+        *,
+        table_id: int,
+        user_id: int,
+        discord_user_id: int,
+        state: dict,
+    ) -> None:
+        assert self._connection is not None
+        current_time = _utc_now()
+        await self._connection.execute(
+            """
+            INSERT INTO blackjack_sessions (table_id, user_id, discord_user_id, state_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(table_id) DO UPDATE SET
+                user_id = excluded.user_id,
+                discord_user_id = excluded.discord_user_id,
+                state_json = excluded.state_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                table_id,
+                user_id,
+                discord_user_id,
+                json.dumps(state, ensure_ascii=False, separators=(",", ":")),
+                current_time,
+                current_time,
+            ),
+        )
+        await self._connection.commit()
+
+    async def delete_blackjack_session(self, table_id: int) -> None:
+        assert self._connection is not None
+        await self._connection.execute("DELETE FROM blackjack_sessions WHERE table_id = ?", (table_id,))
+        await self._connection.commit()
 
     async def _fetch_ledger_by_key(self, entry_key: str) -> LedgerEntry | None:
         assert self._connection is not None

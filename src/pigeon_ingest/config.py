@@ -12,7 +12,7 @@ class IngestConfig:
     api_key: str
     log_id: int = 4103
     limit: int = 10
-    poll_interval_seconds: float = 2.0
+    poll_interval_seconds: float = 60.0
     deposit_item_id: int = 206
     deposit_unit_value: int = 800000
     base_url: str = "https://api.torn.com/v2"
@@ -33,7 +33,7 @@ class IngestConfig:
             api_key=api_key,
             log_id=_read_int("TORN_LOG_ID", 4103),
             limit=_read_int("TORN_LIMIT", 10),
-            poll_interval_seconds=_read_float("TORN_POLL_INTERVAL_SECONDS", 2.0),
+            poll_interval_seconds=_read_float("TORN_POLL_INTERVAL_SECONDS", 60.0),
             deposit_item_id=_read_int("TORN_DEPOSIT_ITEM_ID", 206),
             deposit_unit_value=_read_int("TORN_DEPOSIT_UNIT_VALUE", 800000),
             base_url=os.getenv("TORN_BASE_URL", "https://api.torn.com/v2").strip(),
