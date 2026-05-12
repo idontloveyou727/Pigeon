@@ -43,6 +43,7 @@ class PigeonDiscordBot(commands.Bot):
         logger = logging.getLogger(__name__)
         if self._config.guild_id is not None:
             guild = discord.Object(id=self._config.guild_id)
+            self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
             logger.info("Synced slash commands to guild %s", self._config.guild_id)
         else:
