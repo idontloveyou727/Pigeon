@@ -1,6 +1,7 @@
-# How to Deploy on Oracle
+# How to Deploy on a VM
 
-This guide shows how to deploy the project on an Oracle Cloud VM and run it like a real backend.
+This guide shows how to deploy the project on a Linux VM and run it like a real backend.
+It works for Google Cloud, Oracle Cloud, and other small VPS providers.
 
 Recommended setup:
 
@@ -18,14 +19,15 @@ The application is intentionally split into two processes:
 That means:
 
 - locally, you usually run two terminals if you want both processes up at once
-- on Oracle, you should run them as two separate services, not as one combined process
+- on a VM, you should run them as two separate services, not as one combined process
 
-## 1. Create the Oracle VM
+## 1. Create the VM
 
-Create a new Compute Instance in Oracle Cloud Infrastructure with simple settings:
+Create a small Linux VM. For Google Cloud Free Tier, an `e2-micro` instance in an eligible US region is enough for this project.
+For Oracle Cloud, a small Always Free instance is also enough when capacity is available.
 
-- Image: Ubuntu 22.04 LTS or Oracle Linux 9
-- Shape: a small VM is enough, for example `VM.Standard.E2.1.Micro` for light load
+- Image: Debian 12 or Ubuntu 22.04 LTS
+- Shape: a small VM is enough for light load
 - Networking: only SSH `22` inbound from your IP address
 - No HTTP/HTTPS port is needed if you only run ingest + Discord bot
 
@@ -37,7 +39,7 @@ On the VM, install Python and basic tools:
 
 ```bash
 sudo apt update
-sudo apt install -y git python3 python3-venv python3-pip
+sudo apt install -y git python3 python3-venv python3-pip sqlite3
 ```
 
 If you use Oracle Linux, replace that with `dnf` or `yum` equivalents as needed.
@@ -67,7 +69,7 @@ Create a `.env` file in the repo root with content like this:
 TORN_API_KEY=your-torn-api-key
 TORN_LOG_ID=4103
 TORN_LIMIT=10
-TORN_POLL_INTERVAL_SECONDS=2
+TORN_POLL_INTERVAL_SECONDS=30
 TORN_DEPOSIT_ITEM_ID=206
 TORN_DEPOSIT_UNIT_VALUE=800000
 TORN_DATABASE_PATH=data/ingest.sqlite3
@@ -84,6 +86,7 @@ Notes:
 - Do not commit `.env` to git
 - If the bot is only used in one server, set `DISCORD_GUILD_ID` so slash commands sync faster
 - `DISCORD_ADMIN_USER_IDS` accepts a comma-separated list of IDs if you have multiple admins
+- `TORN_POLL_INTERVAL_SECONDS=30` is a safer default for a small 24/7 service. Lower values call the Torn API more often.
 
 ## 6. Run a manual smoke test
 
@@ -116,10 +119,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/Pigeon
-EnvironmentFile=/home/ubuntu/Pigeon/.env
-ExecStart=/home/ubuntu/Pigeon/.venv/bin/pigeon-ingest
+User=YOUR_VM_USER
+WorkingDirectory=/home/YOUR_VM_USER/Pigeon
+EnvironmentFile=/home/YOUR_VM_USER/Pigeon/.env
+ExecStart=/home/YOUR_VM_USER/Pigeon/.venv/bin/pigeon-ingest
 Restart=always
 RestartSec=5
 
@@ -127,7 +130,30 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-If your VM user is not `ubuntu`, change the user and paths accordingly.
+Replace `YOUR_VM_USER` with your Linux username, for example `phucnguyenquang727` on Google Cloud or `ubuntu` on many Ubuntu images.
+
+If the browser SSH terminal has trouble with copy/paste, create the file with `sudo nano` or paste this single block:
+
+```bash
+sudo tee /etc/systemd/system/pigeon-ingest.service > /dev/null <<'EOF'
+[Unit]
+Description=Pigeon Torn Ingest Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_VM_USER
+WorkingDirectory=/home/YOUR_VM_USER/Pigeon
+EnvironmentFile=/home/YOUR_VM_USER/Pigeon/.env
+ExecStart=/home/YOUR_VM_USER/Pigeon/.venv/bin/pigeon-ingest
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
 
 Enable the service:
 
@@ -149,15 +175,40 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/Pigeon
-EnvironmentFile=/home/ubuntu/Pigeon/.env
-ExecStart=/home/ubuntu/Pigeon/.venv/bin/pigeon-bot
+User=YOUR_VM_USER
+WorkingDirectory=/home/YOUR_VM_USER/Pigeon
+EnvironmentFile=/home/YOUR_VM_USER/Pigeon/.env
+ExecStart=/home/YOUR_VM_USER/Pigeon/.venv/bin/pigeon-bot
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
+```
+
+Replace `YOUR_VM_USER` with your Linux username.
+
+If copy/paste into an editor is unreliable, paste this single block:
+
+```bash
+sudo tee /etc/systemd/system/pigeon-bot.service > /dev/null <<'EOF'
+[Unit]
+Description=Pigeon Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_VM_USER
+WorkingDirectory=/home/YOUR_VM_USER/Pigeon
+EnvironmentFile=/home/YOUR_VM_USER/Pigeon/.env
+ExecStart=/home/YOUR_VM_USER/Pigeon/.venv/bin/pigeon-bot
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
 ```
 
 Enable the service:
@@ -187,7 +238,7 @@ journalctl -u pigeon-bot -f
 When a new commit is pushed to GitHub:
 
 ```bash
-cd /home/ubuntu/Pigeon
+cd /home/YOUR_VM_USER/Pigeon
 git pull
 source .venv/bin/activate
 python -m pip install -e .
@@ -204,7 +255,7 @@ sudo systemctl restart pigeon-bot
 
 ## 12. How to inspect the database
 
-For admin work, the database is the SQLite file at `data/ingest.sqlite3` on the Oracle VM.
+For admin work, the database is the SQLite file at `data/ingest.sqlite3` on the VM.
 The normal workflow is:
 
 1. SSH into the VM
@@ -242,14 +293,31 @@ sudo apt install -y sqlite3
 If you want to inspect the database locally on your own machine, copy the file from the VM first:
 
 ```bash
-scp ubuntu@your-oracle-vm:/home/ubuntu/Pigeon/data/ingest.sqlite3 ./ingest.sqlite3
+scp YOUR_VM_USER@your-vm:/home/YOUR_VM_USER/Pigeon/data/ingest.sqlite3 ./ingest.sqlite3
 ```
 
 Then open the copied file locally with the same `sqlite3` commands.
 
-## 13. Fastest deployment path
+## 13. Quick health checks
 
-If you only want to get it running quickly on Oracle VM, do this in order:
+Check whether both services are running:
+
+```bash
+sudo systemctl is-active pigeon-ingest
+sudo systemctl is-active pigeon-bot
+```
+
+Check recent ingest runs:
+
+```bash
+sqlite3 data/ingest.sqlite3 "SELECT id, status, fetched_count, inserted_count, duplicate_count, deposit_count, deposit_amount, error_message FROM ingest_runs ORDER BY id DESC LIMIT 10;"
+```
+
+If `inserted_count=0` and `duplicate_count` is positive, the ingest service is running but the newest Torn logs were already stored.
+
+## 14. Fastest deployment path
+
+If you only want to get it running quickly on a VM, do this in order:
 
 1. Clone the repo
 2. Create `.venv`
