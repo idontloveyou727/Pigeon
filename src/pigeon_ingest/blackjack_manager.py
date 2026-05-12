@@ -12,7 +12,6 @@ from .blackjack import (
     HandResult,
     Shoe,
     apply_action,
-    format_cards,
     settle_game,
     start_game,
 )
@@ -206,11 +205,31 @@ def format_results(game: BlackjackGame, results: list[HandResult]) -> str:
     lines = [format_game(game, reveal_dealer=True), "Results:"]
     for result in results:
         lines.append(f"{result.label}; payout={result.payout}")
+    lines.append("")
+    lines.append("/bj start amount:<bet> to continue playing, or /bj exit to leave the table.")
     return "\n".join(lines)
 
 
 def _reserved_amount(game: BlackjackGame) -> int:
     return sum(hand.bet for hand in game.hands)
+
+
+def format_cards(cards: list[str]) -> str:
+    return " ".join(format_card(card) for card in cards)
+
+
+def format_card(card: str) -> str:
+    if card == "??":
+        return "??"
+    rank = card[:-1]
+    suit = card[-1]
+    icons = {
+        "S": "♠",
+        "H": "♥",
+        "D": "♦",
+        "C": "♣",
+    }
+    return f"{rank}{icons.get(suit, suit)}"
 
 
 def _game_to_dict(game: BlackjackGame) -> dict:
